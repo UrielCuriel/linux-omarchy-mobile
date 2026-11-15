@@ -1133,6 +1133,7 @@ properties:
           - enum:
               - qcom,sm8450-hdk
               - qcom,sm8450-qrd
+              - oneplus,wly
               - samsung,r0q
               - sony,pdx223
               - sony,pdx224
