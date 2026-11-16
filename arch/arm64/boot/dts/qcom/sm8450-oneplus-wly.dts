@@ -443,15 +443,6 @@
 };
 
 &pcie0 {
-	/*
-	 * The QCA6490's MSIs never reach the GIC ITS: the root port's own
-	 * MSIs do, and the chip programs a valid doorbell address, but the
-	 * WLAN firmware's boot handshake times out waiting for its BHI
-	 * interrupt. The controller's internal MSI controller works.
-	 */
-	/delete-property/ msi-map;
-	/delete-property/ msi-map-mask;
-
 	max-link-speed = <2>;
 	status = "okay";
 };
