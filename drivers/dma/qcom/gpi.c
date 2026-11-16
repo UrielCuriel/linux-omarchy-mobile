@@ -527,6 +527,8 @@ struct gpi_desc {
 	struct gchan *gchan;
 	struct gpi_tre tre[MAX_TRE];
 	u32 num_tre;
+	/* no TRE asks for an event: retired when the paired RX one completes */
+	bool no_eot;
 };
 
 static const u32 GPII_CHAN_DIR[MAX_CHANNELS_PER_GPII] = {
@@ -910,6 +912,35 @@ exit_irq:
 	return IRQ_HANDLED;
 }
 
+/*
+ * Retire the TX descriptors at the head of the queue that raise no event of
+ * their own (an I2C read's config and GO). Called when an RX transfer
+ * completes: the GO that started it has been processed by then.
+ */
+static void gpi_retire_no_eot_tx(struct gpii *gpii)
+{
+	struct gchan *tx = &gpii->gchan[GPI_TX_CHAN];
+	struct virt_dma_desc *vd;
+	struct gpi_desc *gpi_desc;
+	unsigned long flags;
+
+	spin_lock_irqsave(&tx->vc.lock, flags);
+	while ((vd = vchan_next_desc(&tx->vc))) {
+		gpi_desc = to_gpi_desc(vd);
+		if (!gpi_desc->no_eot || !gpi_desc->db)
+			break;
+
+		tx->ch_ring.rp = gpi_desc->db;
+		dma_cookie_complete(&vd->tx);
+		list_del(&vd->node);
+		kfree(gpi_desc);
+	}
+	spin_unlock_irqrestore(&tx->vc.lock, flags);
+
+	/* update must be visible to other cores */
+	smp_wmb();
+}
+
 /* process DMA Immediate completion data events */
 static void gpi_process_imed_data_event(struct gchan *gchan,
 					struct immediate_data_event *imed_event)
@@ -968,6 +999,9 @@ static void gpi_process_imed_data_event(struct gchan *gchan,
 	smp_wmb();
 
 	chid = imed_event->chid;
+	if (chid == GPI_RX_CHAN && gchan->protocol == QCOM_GPI_I2C)
+		gpi_retire_no_eot_tx(gpii);
+
 	if (imed_event->code == MSM_GPI_TCE_EOT && gpii->ieob_set) {
 		if (chid == GPI_RX_CHAN)
 			goto gpi_free_desc;
@@ -1043,6 +1077,9 @@ static void gpi_process_xfer_compl_event(struct gchan *gchan,
 	smp_wmb();
 
 	chid = compl_event->chid;
+	if (chid == GPI_RX_CHAN && gchan->protocol == QCOM_GPI_I2C)
+		gpi_retire_no_eot_tx(gpii);
+
 	if (compl_event->code == MSM_GPI_TCE_EOT && gpii->ieob_set) {
 		if (chid == GPI_RX_CHAN)
 			goto gpi_free_desc;
@@ -1627,6 +1664,7 @@ static int gpi_create_i2c_tre(struct gchan *chan, struct gpi_desc *desc,
 	struct gpi_i2c_config *i2c = chan->config;
 	struct device *dev = chan->gpii->gpi_dev->dev;
 	unsigned int tre_idx = 0;
+	bool eot = false;
 	dma_addr_t address;
 	struct gpi_tre *tre;
 	unsigned int i;
@@ -1687,6 +1725,7 @@ static int gpi_create_i2c_tre(struct gchan *chan, struct gpi_desc *desc,
 
 		tre->dword[3] = u32_encode_bits(TRE_TYPE_DMA, TRE_FLAGS_TYPE);
 		tre->dword[3] |= u32_encode_bits(1, TRE_FLAGS_IEOT);
+		eot = true;
 
 		if (!(flags & DMA_PREP_INTERRUPT))
 			tre->dword[3] |= u32_encode_bits(1, TRE_FLAGS_BEI);
@@ -1695,6 +1734,13 @@ static int gpi_create_i2c_tre(struct gchan *chan, struct gpi_desc *desc,
 	for (i = 0; i < tre_idx; i++)
 		dev_dbg(dev, "TRE:%d %x:%x:%x:%x\n", i, desc->tre[i].dword[0],
 			desc->tre[i].dword[1], desc->tre[i].dword[2], desc->tre[i].dword[3]);
+
+	/*
+	 * The TX side of a read is only config and GO, linked to the RX DMA
+	 * TRE: nothing on this channel raises an event, so its ring space is
+	 * given back when the read completes on RX.
+	 */
+	desc->no_eot = !eot;
 
 	return tre_idx;
 }
