@@ -1,0 +1,71 @@
+# SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/display/panel/samsung,s6e3hc3-amb670yf07.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Samsung AMB670YF07 AMOLED DSI panel with the S6E3HC3 DDIC
+
+description: The AMB670YF07 is a 1440x3216 command-mode AMOLED panel from
+  Samsung Mobile Displays (SMD), found in the OnePlus 10 Pro. It takes a
+  DSC-compressed stream over 4 DSI lanes.
+
+maintainers:
+  - Uriel Curiel <kratoz.00616@gmail.com>
+
+allOf:
+  - $ref: panel-common.yaml#
+
+properties:
+  compatible:
+    const: samsung,s6e3hc3-amb670yf07
+
+  reg:
+    maxItems: 1
+
+  vddio-supply:
+    description: I/O voltage rail, 1.8 V
+
+  vci-supply:
+    description: Analog voltage rail, 3.0 V
+
+  enable-gpios:
+    maxItems: 1
+    description: Enables the panel's ELVDD/ELVSS supply
+
+required:
+  - compatible
+  - reg
+  - reset-gpios
+  - enable-gpios
+  - vddio-supply
+  - vci-supply
+  - port
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/gpio/gpio.h>
+
+    dsi {
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        panel@0 {
+            compatible = "samsung,s6e3hc3-amb670yf07";
+            reg = <0>;
+            vddio-supply = <&vreg_l12c_1p8>;
+            vci-supply = <&vreg_l13c_3p0>;
+            reset-gpios = <&tlmm 3 GPIO_ACTIVE_LOW>;
+            enable-gpios = <&tlmm 90 GPIO_ACTIVE_HIGH>;
+
+            port {
+                panel_in: endpoint {
+                    remote-endpoint = <&mdss_dsi0_out>;
+                };
+            };
+        };
+    };
+
+...
