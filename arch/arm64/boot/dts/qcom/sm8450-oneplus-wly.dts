@@ -2,10 +2,10 @@
 /*
  * OnePlus 10 Pro (wly, NE2215): first-light device tree.
  *
- * Only what the bootloader already set up is described: the splash
- * framebuffer it scans out, the rails the USB 2.0 PHY needs and the
- * buttons. Every value comes from the stock device tree that ABL hands
- * to the OxygenOS 15.0.0.1302 kernel (/sys/firmware/fdt).
+ * Describes the splash framebuffer, the display (DSI panel), USB 2.0,
+ * the buttons and the PMK8350's RTC and ADC. Every value comes from the
+ * stock device tree that ABL hands to the OxygenOS 15.0.0.1302 kernel
+ * (/sys/firmware/fdt).
  */
 
 /dts-v1/;
@@ -171,6 +171,12 @@
 			regulator-max-microvolt = <912000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
 		};
+
+		vreg_l6b_1p2: ldo6 {
+			regulator-min-microvolt = <1200000>;
+			regulator-max-microvolt = <1200000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
 	};
 
 	regulators-1 {
@@ -206,7 +212,57 @@
 			regulator-max-microvolt = <1800000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
 		};
+
+		vreg_l12c_1p8: ldo12 {
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
+		vreg_l13c_3p0: ldo13 {
+			regulator-min-microvolt = <3000000>;
+			regulator-max-microvolt = <3000000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
 	};
+};
+
+&mdss {
+	status = "okay";
+};
+
+&mdss_dsi0 {
+	vdda-supply = <&vreg_l6b_1p2>;
+	status = "okay";
+
+	panel@0 {
+		compatible = "samsung,s6e3hc3-amb670yf07";
+		reg = <0>;
+
+		vddio-supply = <&vreg_l12c_1p8>;
+		vci-supply = <&vreg_l13c_3p0>;
+		reset-gpios = <&tlmm 3 GPIO_ACTIVE_LOW>;
+		enable-gpios = <&tlmm 90 GPIO_ACTIVE_HIGH>;
+
+		pinctrl-0 = <&panel_default>, <&panel_te>;
+		pinctrl-names = "default";
+
+		port {
+			panel0_in: endpoint {
+				remote-endpoint = <&mdss_dsi0_out>;
+			};
+		};
+	};
+};
+
+&mdss_dsi0_out {
+	remote-endpoint = <&panel0_in>;
+	data-lanes = <0 1 2 3>;
+};
+
+&mdss_dsi0_phy {
+	vdds-supply = <&vreg_l5b_0p88>;
+	status = "okay";
 };
 
 &pm8350_gpios {
@@ -278,6 +334,20 @@
 &tlmm {
 	/* Owned by the secure world on stock (qcom,gpios-reserved) */
 	gpio-reserved-ranges = <28 4>, <36 4>;
+
+	panel_default: panel-default-state {
+		pins = "gpio3", "gpio90";
+		function = "gpio";
+		drive-strength = <8>;
+		bias-disable;
+	};
+
+	panel_te: panel-te-state {
+		pins = "gpio86";
+		function = "mdp_vsync";
+		drive-strength = <2>;
+		bias-pull-down;
+	};
 };
 
 &usb_1 {
