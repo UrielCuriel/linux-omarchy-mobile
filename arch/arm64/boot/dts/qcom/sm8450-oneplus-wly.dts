@@ -254,6 +254,16 @@
 		label = "pm8350b_vbat_sns";
 		qcom,pre-scaling = <1 3>;
 	};
+
+	channel@310 {
+		reg = <PM8350B_ADC7_CHG_TEMP>;
+		label = "pm8350b_chg_temp";
+	};
+
+	channel@311 {
+		reg = <PM8350B_ADC7_USB_IN_V_16>;
+		label = "pm8350b_usb_in_v_div_16";
+	};
 };
 
 &pon_pwrkey {
