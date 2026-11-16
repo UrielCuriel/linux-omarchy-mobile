@@ -11,6 +11,9 @@
 /dts-v1/;
 
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/iio/qcom,spmi-adc7-pm8350.h>
+#include <dt-bindings/iio/qcom,spmi-adc7-pm8350b.h>
+#include <dt-bindings/iio/qcom,spmi-adc7-pmk8350.h>
 #include <dt-bindings/input/linux-event-codes.h>
 #include <dt-bindings/regulator/qcom,rpmh-regulator.h>
 
@@ -213,6 +216,42 @@
 		power-source = <1>;
 		bias-pull-up;
 		input-enable;
+	};
+};
+
+/*
+ * Read-only for now: no allow-set-time (the secure world owns setting it)
+ * and no alarm, which stock's Android may own. Without a stored offset the
+ * time is the counter since the PMIC's last reset, not the wall clock.
+ */
+&pmk8350_rtc {
+	qcom,no-alarm;
+	status = "okay";
+};
+
+/*
+ * Stock's power channels on the PMK8350's ADC: the main rail and the
+ * battery (two cells in series). The PM8350B's are read here by channel
+ * number (SID 3); the PMIC itself is not described yet. Stock also reads
+ * the charger's temperature (0x310) and the USB input (0x311), which the
+ * adc5 driver's ADC7 table has no scaling for yet.
+ */
+&pmk8350_vadc {
+	status = "okay";
+
+	channel@3 {
+		reg = <PMK8350_ADC7_DIE_TEMP>;
+		label = "pmk8350_die_temp";
+	};
+
+	channel@18e {
+		reg = <PM8350_ADC7_VPH_PWR(1)>;
+		label = "pm8350_vph_pwr";
+	};
+
+	channel@38f {
+		reg = <PM8350B_ADC7_VBAT_SNS>;
+		label = "pm8350b_vbat_sns";
 	};
 };
 
