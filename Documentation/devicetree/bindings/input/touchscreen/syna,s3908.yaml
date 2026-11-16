@@ -4,12 +4,13 @@
 $id: http://devicetree.org/schemas/input/touchscreen/syna,s3908.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
-title: Synaptics TouchComm SPI touchscreen controllers
+title: Synaptics TouchComm SPI and I2C touchscreen controllers
 
 description:
   Synaptics touchscreen controllers that use the TouchComm protocol over
-  SPI, such as the S3908 found in the Google Pixel 7 Pro. The sensor size
-  is read from the controller; the touchscreen-* properties only adjust it.
+  SPI or I2C, such as the S3908 found in the Google Pixel 7 Pro (SPI) and
+  the OnePlus 10 Pro (I2C). The sensor size is read from the controller;
+  the touchscreen-* properties only adjust it.
 
 maintainers:
   - Derek Ross <derekross@gmail.com>
@@ -36,7 +37,7 @@ properties:
     description: 1.8 V digital and I/O supply
 
   avdd-supply:
-    description: 3.3 V analog supply
+    description: Analog supply, 3.0 to 3.3 V
 
   spi-max-frequency: true
   touchscreen-inverted-x: true
@@ -73,6 +74,26 @@ examples:
         avdd-supply = <&ts_avdd>;
         spi-max-frequency = <10000000>;
         touchscreen-x-mm = <71>;
+        touchscreen-y-mm = <154>;
+      };
+    };
+
+  - |
+    #include <dt-bindings/interrupt-controller/irq.h>
+    #include <dt-bindings/gpio/gpio.h>
+
+    i2c {
+      #address-cells = <1>;
+      #size-cells = <0>;
+
+      touchscreen@4b {
+        compatible = "syna,s3908";
+        reg = <0x4b>;
+        interrupts-extended = <&tlmm 21 IRQ_TYPE_LEVEL_LOW>;
+        reset-gpios = <&tlmm 20 GPIO_ACTIVE_LOW>;
+        vdd-supply = <&ts_vdd_1p8>;
+        avdd-supply = <&vreg_l3c_3p0>;
+        touchscreen-x-mm = <70>;
         touchscreen-y-mm = <154>;
       };
     };
