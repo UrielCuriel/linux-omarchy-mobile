@@ -1,0 +1,77 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/input/oneplus,mxm1120-alert-slider.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: OnePlus alert slider on two MagnaChip MXM1120 Hall sensors
+
+maintainers:
+  - Uriel Curiel <kratoz.00616@gmail.com>
+
+description:
+  The three-position alert slider of some OnePlus phones carries a magnet
+  past two MXM1120 Hall sensors on one I2C bus, one near each end of its
+  travel. The position follows from the difference of the two readings.
+  The node describes both sensors, the one near the top first.
+
+properties:
+  compatible:
+    const: oneplus,mxm1120-alert-slider
+
+  reg:
+    items:
+      - description: I2C address of the sensor near the top
+      - description: I2C address of the sensor near the bottom
+
+  reg-names:
+    items:
+      - const: up
+      - const: down
+
+  interrupts:
+    items:
+      - description: interrupt of the sensor near the top
+      - description: interrupt of the sensor near the bottom
+
+  interrupt-names:
+    items:
+      - const: up
+      - const: down
+
+  vdd-supply:
+    description: analog supply of both sensors, 2.7 to 3.6 V
+
+  vio-supply:
+    description: digital interface supply of both sensors, 1.65 V to VDD
+
+required:
+  - compatible
+  - reg
+  - reg-names
+  - interrupts
+  - interrupt-names
+  - vdd-supply
+  - vio-supply
+
+additionalProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/interrupt-controller/irq.h>
+
+    i2c {
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        alert-slider@d {
+            compatible = "oneplus,mxm1120-alert-slider";
+            reg = <0x0d>, <0x0c>;
+            reg-names = "up", "down";
+            interrupts-extended = <&tlmm 117 IRQ_TYPE_EDGE_FALLING>,
+                                  <&tlmm 71 IRQ_TYPE_EDGE_FALLING>;
+            interrupt-names = "up", "down";
+            vdd-supply = <&vreg_l7c_3p0>;
+            vio-supply = <&vreg_s10b_1p8>;
+        };
+    };
