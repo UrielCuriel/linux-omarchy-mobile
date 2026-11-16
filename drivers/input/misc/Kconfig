@@ -242,6 +242,17 @@ config INPUT_PM8941_PWRKEY
 	  To compile this driver as a module, choose M here: the module
 	  will be called pm8941-pwrkey.
 
+config INPUT_ONEPLUS_ALERT_SLIDER
+	tristate "OnePlus alert slider on MXM1120 Hall sensors"
+	depends on I2C
+	help
+	  Say Y here for the three-position alert slider of OnePlus phones
+	  that read it through two MagnaChip MXM1120 Hall sensors, such as
+	  the OnePlus 10 Pro. Its position is reported as ABS_SND_PROFILE.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called oneplus-alert-slider.
+
 config INPUT_PM8XXX_VIBRATOR
 	tristate "Qualcomm PM8XXX vibrator support"
 	depends on MFD_PM8XXX || MFD_SPMI_PMIC
