@@ -206,18 +206,6 @@
 	};
 };
 
-/*
- * Enabled without a driver (DRM_MSM is a module the first-light initramfs
- * never loads): as a consumer that never probes it keeps the sync_state of
- * gcc, the interconnects and rpmhpd pending, so nothing the splash scan-out
- * ABL set up depends on is turned off. Whether the scan-out needs this has
- * not been tested on its own: it was added while chasing a dark screen that
- * turned out to be a SoC reset at dwc3 probe.
- */
-&mdss {
-	status = "okay";
-};
-
 &pm8350_gpios {
 	vol_down_n: vol-down-n-state {
 		pins = "gpio6";
