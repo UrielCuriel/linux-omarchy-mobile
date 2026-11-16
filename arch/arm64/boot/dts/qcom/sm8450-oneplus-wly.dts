@@ -252,6 +252,7 @@
 	channel@38f {
 		reg = <PM8350B_ADC7_VBAT_SNS>;
 		label = "pm8350b_vbat_sns";
+		qcom,pre-scaling = <1 3>;
 	};
 };
 
