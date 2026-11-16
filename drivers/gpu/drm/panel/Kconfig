@@ -1097,6 +1097,19 @@ config DRM_PANEL_SAMSUNG_S6E3HC3
 	  left it running: the driver sends no initialisation sequence, and
 	  the display modes come from the display controller's driver.
 
+config DRM_PANEL_SAMSUNG_S6E3HC3_AMB670YF07
+	tristate "Samsung S6E3HC3 AMB670YF07 DSI command mode panel"
+	depends on GPIOLIB
+	depends on OF
+	depends on DRM_MIPI_DSI
+	depends on BACKLIGHT_CLASS_DEVICE
+	select DRM_DISPLAY_DSC_HELPER
+	select DRM_DISPLAY_HELPER
+	help
+	  Say Y or M here to enable support for the Samsung AMB670YF07
+	  command-mode AMOLED panel with the S6E3HC3 DDIC, found in the
+	  OnePlus 10 Pro. It is driven at 1080x2412 with DSC.
+
 config DRM_PANEL_SAMSUNG_S6E3HC4
 	tristate "Samsung S6E3HC4 DSI command mode panel"
 	depends on GPIOLIB
