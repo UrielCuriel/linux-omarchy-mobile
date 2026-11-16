@@ -69,6 +69,72 @@
 		};
 	};
 
+	/* The QCA6490 Wi-Fi/Bluetooth chip's power sequencer, as stock wires it */
+	wcn6855-pmu {
+		compatible = "qcom,wcn6855-pmu";
+
+		pinctrl-0 = <&bt_en>, <&wlan_en>, <&xo_clk_default>;
+		pinctrl-names = "default";
+
+		wlan-enable-gpios = <&tlmm 80 GPIO_ACTIVE_HIGH>;
+		bt-enable-gpios = <&tlmm 81 GPIO_ACTIVE_HIGH>;
+		swctrl-gpios = <&tlmm 82 GPIO_ACTIVE_HIGH>;
+		xo-clk-gpios = <&tlmm 204 GPIO_ACTIVE_HIGH>;
+
+		vddio-supply = <&vreg_s10b_1p8>;
+		vddaon-supply = <&vreg_s11b_0p95>;
+		vddpmu-supply = <&vreg_s12b_1p25>;
+		vddpmumx-supply = <&vreg_s2e_1p0>;
+		vddpmucx-supply = <&vreg_s11b_0p95>;
+		vddrfa0p95-supply = <&vreg_s11b_0p95>;
+		vddrfa1p3-supply = <&vreg_s12b_1p25>;
+		vddrfa1p9-supply = <&vreg_s1c_1p9>;
+		vddpcie1p3-supply = <&vreg_s12b_1p25>;
+		vddpcie1p9-supply = <&vreg_s1c_1p9>;
+
+		regulators {
+			vreg_pmu_rfa_cmn_0p8: ldo0 {
+				regulator-name = "vreg_pmu_rfa_cmn_0p8";
+			};
+
+			vreg_pmu_aon_0p8: ldo1 {
+				regulator-name = "vreg_pmu_aon_0p8";
+			};
+
+			vreg_pmu_wlcx_0p8: ldo2 {
+				regulator-name = "vreg_pmu_wlcx_0p8";
+			};
+
+			vreg_pmu_wlmx_0p8: ldo3 {
+				regulator-name = "vreg_pmu_wlmx_0p8";
+			};
+
+			vreg_pmu_btcmx_0p8: ldo4 {
+				regulator-name = "vreg_pmu_btcmx_0p8";
+			};
+
+			vreg_pmu_pcie_1p8: ldo5 {
+				regulator-name = "vreg_pmu_pcie_1p8";
+			};
+
+			vreg_pmu_pcie_0p9: ldo6 {
+				regulator-name = "vreg_pmu_pcie_0p9";
+			};
+
+			vreg_pmu_rfa_0p8: ldo7 {
+				regulator-name = "vreg_pmu_rfa_0p8";
+			};
+
+			vreg_pmu_rfa_1p2: ldo8 {
+				regulator-name = "vreg_pmu_rfa_1p2";
+			};
+
+			vreg_pmu_rfa_1p7: ldo9 {
+				regulator-name = "vreg_pmu_rfa_1p7";
+			};
+		};
+	};
+
 	/* The touchscreen's 1.8 V rail, switched by GPIO 186 (stock: enable1v8_gpio) */
 	ts_vdd_1p8: regulator-ts-vdd-1p8 {
 		compatible = "regulator-fixed";
@@ -173,6 +239,21 @@
 		vdd-l2-l7-supply = <&vreg_bob>;
 		vdd-l3-l5-supply = <&vreg_bob>;
 
+		vreg_s10b_1p8: smps10 {
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
+		};
+
+		vreg_s11b_0p95: smps11 {
+			regulator-min-microvolt = <966000>;
+			regulator-max-microvolt = <1104000>;
+		};
+
+		vreg_s12b_1p25: smps12 {
+			regulator-min-microvolt = <1350000>;
+			regulator-max-microvolt = <1400000>;
+		};
+
 		vreg_l2b_3p07: ldo2 {
 			regulator-min-microvolt = <3072000>;
 			regulator-max-microvolt = <3072000>;
@@ -220,6 +301,12 @@
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_AUTO>;
 		};
 
+		/* stock: qcom,vdd-wlan-rfa1-config, 1.9 to 2.1 V */
+		vreg_s1c_1p9: smps1 {
+			regulator-min-microvolt = <1900000>;
+			regulator-max-microvolt = <2100000>;
+		};
+
 		vreg_l1c_1p8: ldo1 {
 			regulator-min-microvolt = <1800000>;
 			regulator-max-microvolt = <1800000>;
@@ -248,6 +335,21 @@
 			regulator-min-microvolt = <3000000>;
 			regulator-max-microvolt = <3000000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+	};
+
+	regulators-2 {
+		compatible = "qcom,pmr735a-rpmh-regulators";
+		qcom,pmic-id = "e";
+
+		vdd-s1-supply = <&vph_pwr>;
+		vdd-s2-supply = <&vph_pwr>;
+		vdd-s3-supply = <&vph_pwr>;
+
+		/* stock: qcom,vdd-wlan-aon-config, 1.012 V */
+		vreg_s2e_1p0: smps2 {
+			regulator-min-microvolt = <1012000>;
+			regulator-max-microvolt = <1012000>;
 		};
 	};
 };
@@ -314,6 +416,43 @@
 &mdss_dsi0_phy {
 	vdds-supply = <&vreg_l5b_0p88>;
 	status = "okay";
+};
+
+&pcie0 {
+	/*
+	 * The QCA6490's MSIs never reach the GIC ITS: the root port's own
+	 * MSIs do, and the chip programs a valid doorbell address, but the
+	 * WLAN firmware's boot handshake times out waiting for its BHI
+	 * interrupt. The controller's internal MSI controller works.
+	 */
+	/delete-property/ msi-map;
+	/delete-property/ msi-map-mask;
+
+	max-link-speed = <2>;
+	status = "okay";
+};
+
+&pcie0_phy {
+	vdda-phy-supply = <&vreg_l5b_0p88>;
+	vdda-pll-supply = <&vreg_l6b_1p2>;
+	status = "okay";
+};
+
+&pcieport0 {
+	wifi@0 {
+		compatible = "pci17cb,1103";
+		reg = <0x10000 0x0 0x0 0x0 0x0>;
+
+		vddrfacmn-supply = <&vreg_pmu_rfa_cmn_0p8>;
+		vddaon-supply = <&vreg_pmu_aon_0p8>;
+		vddwlcx-supply = <&vreg_pmu_wlcx_0p8>;
+		vddwlmx-supply = <&vreg_pmu_wlmx_0p8>;
+		vddpcie1p8-supply = <&vreg_pmu_pcie_1p8>;
+		vddpcie0p9-supply = <&vreg_pmu_pcie_0p9>;
+		vddrfa0p8-supply = <&vreg_pmu_rfa_0p8>;
+		vddrfa1p2-supply = <&vreg_pmu_rfa_1p2>;
+		vddrfa1p8-supply = <&vreg_pmu_rfa_1p7>;
+	};
 };
 
 &pm8350_gpios {
@@ -386,6 +525,14 @@
 	/* Owned by the secure world on stock (qcom,gpios-reserved) */
 	gpio-reserved-ranges = <28 4>, <36 4>;
 
+	bt_en: bt-en-state {
+		pins = "gpio81";
+		function = "gpio";
+		drive-strength = <16>;
+		output-low;
+		bias-pull-down;
+	};
+
 	panel_default: panel-default-state {
 		pins = "gpio3", "gpio90";
 		function = "gpio";
@@ -412,6 +559,22 @@
 		function = "gpio";
 		drive-strength = <8>;
 		bias-disable;
+	};
+
+	wlan_en: wlan-en-state {
+		pins = "gpio80";
+		function = "gpio";
+		drive-strength = <16>;
+		output-low;
+		bias-pull-down;
+	};
+
+	xo_clk_default: xo-clk-state {
+		pins = "gpio204";
+		function = "gpio";
+		drive-strength = <16>;
+		output-low;
+		bias-pull-down;
 	};
 
 	ts_vdd_en: ts-vdd-en-state {
