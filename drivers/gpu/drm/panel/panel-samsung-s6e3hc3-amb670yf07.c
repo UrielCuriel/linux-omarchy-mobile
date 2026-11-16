@@ -8,12 +8,14 @@
  * its 1440x3216 120 Hz timing). Stock's 1080x2412 timings send the same
  * sequence with the DDIC's scaler (0xc3) on.
  *
- * The panel scans on a 120 Hz grid in every mode: at 60 Hz, stock's
- * sequence leaves its adaptive refresh on, and TE comes every second slot
- * or every slot. With the DSI link clocked for 60 Hz a frame takes a whole
- * 60 Hz period to send, misses the next slot and lands on the third (40
- * fps). Clocked for 120 Hz, a frame fits in one slot and TE comes on every
- * slot.
+ * The panel scans on a 120 Hz grid in every mode. At 60 Hz, stock's
+ * sequence leaves its adaptive refresh on (0xbd at 0x14 = 0x01), and TE
+ * comes every second slot or every slot; with the DSI link clocked for 60
+ * Hz a frame then takes a whole 60 Hz period to send, misses the next slot
+ * and lands on the third (40 fps). This driver clears it at 60 Hz too, as
+ * stock's qsync-min-fps-0 command does at run time, so TE comes every
+ * second slot, always. The DSI host tells the panel each mode's rate
+ * (drm_panel_set_refresh_rate()) before preparing it.
  */
 
 #include <linux/backlight.h>
@@ -25,10 +27,10 @@
 
 #include <drm/display/drm_dsc.h>
 #include <drm/display/drm_dsc_helper.h>
+#include <drm/drm_connector.h>
 #include <drm/drm_mipi_dsi.h>
 #include <drm/drm_modes.h>
 #include <drm/drm_panel.h>
-#include <drm/drm_probe_helper.h>
 
 /* Normal range; stock goes up to 4095 in high brightness mode (HBM). */
 #define AMB670YF07_MAX_BRIGHTNESS	2047
@@ -45,6 +47,8 @@ struct amb670yf07 {
 	struct gpio_desc *reset_gpio;
 	struct gpio_desc *enable_gpio;
 	struct regulator_bulk_data *supplies;
+	/* the rate the next prepare sets up: 60 or 120 */
+	unsigned int refresh;
 };
 
 static const struct regulator_bulk_data amb670yf07_supplies[] = {
@@ -73,6 +77,9 @@ static int amb670yf07_on(struct amb670yf07 *priv)
 	struct mipi_dsi_device *dsi = priv->dsi;
 	struct mipi_dsi_multi_context ctx = { .dsi = dsi };
 	u8 pps[1 + sizeof(struct drm_dsc_picture_parameter_set)];
+	/* stock's 60 and 120 Hz sequences differ in 0xb9 and 0x60 only */
+	u8 te = priv->refresh == 60 ? 0x05 : 0x02;
+	u8 freq = priv->refresh == 60 ? 0x01 : 0x00;
 
 	dsi->mode_flags |= MIPI_DSI_MODE_LPM;
 
@@ -95,7 +102,7 @@ static int amb670yf07_on(struct amb670yf07 *priv)
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb0, 0x00, 0x22, 0xb9);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb9, 0xa1, 0xb1);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb0, 0x00, 0x3a, 0xb9);
-	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb9, 0x02);
+	mipi_dsi_dcs_write_var_seq_multi(&ctx, 0xb9, te);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb0, 0x00, 0x26, 0xb9);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb9, 0x00, 0x00);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xf7, 0x0f);
@@ -104,7 +111,7 @@ static int amb670yf07_on(struct amb670yf07 *priv)
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb0, 0x00, 0x24, 0xb9);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb9, 0x21);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb0, 0x00, 0x38, 0xb9);
-	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb9, 0x02);
+	mipi_dsi_dcs_write_var_seq_multi(&ctx, 0xb9, te);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb0, 0x00, 0x2a, 0xb9);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb9, 0x00, 0x00);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xf7, 0x0f);
@@ -115,12 +122,13 @@ static int amb670yf07_on(struct amb670yf07 *priv)
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xf2, 0x1b, 0x50);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb0, 0x00, 0x08, 0xcb);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xcb, 0x24);
-	mipi_dsi_dcs_write_seq_multi(&ctx, 0x60, 0x00);
+	mipi_dsi_dcs_write_var_seq_multi(&ctx, 0x60, freq);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xbd, 0x23, 0x02);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb0, 0x00, 0x10, 0xbd);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xbd, 0x00);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb0, 0x00, 0x16, 0xbd);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xbd, 0x77);
+	/* adaptive refresh off, at either rate */
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb0, 0x00, 0x14, 0xbd);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xbd, 0x00);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xf7, 0x0f);
@@ -241,27 +249,67 @@ static int amb670yf07_unprepare(struct drm_panel *panel)
 	return 0;
 }
 
-/* stock's timing@wqhd_sdc_120 */
-static const struct drm_display_mode amb670yf07_mode = {
-	.clock = (1440 + 88 + 8 + 57) * (3216 + 8 + 8 + 8) * 120 / 1000,
-	.hdisplay = 1440,
-	.hsync_start = 1440 + 88,
-	.hsync_end = 1440 + 88 + 8,
-	.htotal = 1440 + 88 + 8 + 57,
-	.vdisplay = 3216,
-	.vsync_start = 3216 + 8,
-	.vsync_end = 3216 + 8 + 8,
-	.vtotal = 3216 + 8 + 8 + 8,
-	.width_mm = 70,
-	.height_mm = 156,
-	.type = DRM_MODE_TYPE_DRIVER,
+#define AMB670YF07_MODE(hbp, hz)					\
+{									\
+	.clock = (1440 + 88 + 8 + (hbp)) * (3216 + 8 + 8 + 8) * (hz) / 1000, \
+	.hdisplay = 1440,						\
+	.hsync_start = 1440 + 88,					\
+	.hsync_end = 1440 + 88 + 8,					\
+	.htotal = 1440 + 88 + 8 + (hbp),				\
+	.vdisplay = 3216,						\
+	.vsync_start = 3216 + 8,					\
+	.vsync_end = 3216 + 8 + 8,					\
+	.vtotal = 3216 + 8 + 8 + 8,					\
+	.width_mm = 70,							\
+	.height_mm = 156,						\
+}
+
+/* stock's timing@wqhd_sdc_120 and timing@wqhd_sdc_60; the first is preferred */
+static const struct drm_display_mode amb670yf07_modes[] = {
+	AMB670YF07_MODE(57, 120),
+	AMB670YF07_MODE(56, 60),
 };
 
 static int amb670yf07_get_modes(struct drm_panel *panel,
 				struct drm_connector *connector)
 {
-	return drm_connector_helper_get_modes_fixed(connector,
-						    &amb670yf07_mode);
+	unsigned int i;
+
+	for (i = 0; i < ARRAY_SIZE(amb670yf07_modes); i++) {
+		struct drm_display_mode *mode;
+
+		mode = drm_mode_duplicate(connector->dev, &amb670yf07_modes[i]);
+		if (!mode)
+			return -ENOMEM;
+
+		drm_mode_set_name(mode);
+		mode->type = DRM_MODE_TYPE_DRIVER;
+		if (i == 0)
+			mode->type |= DRM_MODE_TYPE_PREFERRED;
+		drm_mode_probed_add(connector, mode);
+	}
+
+	connector->display_info.width_mm = amb670yf07_modes[0].width_mm;
+	connector->display_info.height_mm = amb670yf07_modes[0].height_mm;
+
+	return ARRAY_SIZE(amb670yf07_modes);
+}
+
+/*
+ * Only stored: a new rate changes the DSI link clock too, so msm switches
+ * it with a full modeset, and the next prepare sends the matching sequence.
+ */
+static int amb670yf07_set_refresh_rate(struct drm_panel *panel,
+				       unsigned int hz)
+{
+	struct amb670yf07 *ctx = to_amb670yf07(panel);
+
+	if (hz != 60 && hz != 120)
+		return -EINVAL;
+
+	ctx->refresh = hz;
+
+	return 0;
 }
 
 static const struct drm_panel_funcs amb670yf07_panel_funcs = {
@@ -270,6 +318,7 @@ static const struct drm_panel_funcs amb670yf07_panel_funcs = {
 	.disable = amb670yf07_disable,
 	.unprepare = amb670yf07_unprepare,
 	.get_modes = amb670yf07_get_modes,
+	.set_refresh_rate = amb670yf07_set_refresh_rate,
 };
 
 static int amb670yf07_bl_update_status(struct backlight_device *bl)
@@ -338,6 +387,7 @@ static int amb670yf07_probe(struct mipi_dsi_device *dsi)
 				     "failed to get enable-gpios\n");
 
 	ctx->dsi = dsi;
+	ctx->refresh = 120;
 	mipi_dsi_set_drvdata(dsi, ctx);
 
 	dsi->lanes = 4;
