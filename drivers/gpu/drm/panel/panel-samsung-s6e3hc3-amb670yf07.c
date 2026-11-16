@@ -1,18 +1,19 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Samsung S6E3HC3 DDIC with the AMB670YF07 command-mode AMOLED panel
- * (OnePlus 10 Pro), driven at 1080x2412 and 120 Hz with DSC.
+ * (OnePlus 10 Pro), driven at its native 1440x3216 and 120 Hz with DSC.
  *
  * The init sequence, timings and DSC slice layout come from the stock
  * vendor devicetree (qcom,mdss_dsi_panel_samsung_amb670yf07_1440_3216_dsc_cmd,
- * its 1080x2412 120 Hz timing).
+ * its 1440x3216 120 Hz timing). Stock's 1080x2412 timings send the same
+ * sequence with the DDIC's scaler (0xc3) on.
  *
  * The panel scans on a 120 Hz grid in every mode: at 60 Hz, stock's
  * sequence leaves its adaptive refresh on, and TE comes every second slot
  * or every slot. With the DSI link clocked for 60 Hz a frame takes a whole
  * 60 Hz period to send, misses the next slot and lands on the third (40
- * fps). The 120 Hz timing clocks the link close to stock's (894 against
- * 825.6 Mbps per lane) and TE comes on every slot.
+ * fps). Clocked for 120 Hz, a frame fits in one slot and TE comes on every
+ * slot.
  */
 
 #include <linux/backlight.h>
@@ -131,30 +132,11 @@ static int amb670yf07_on(struct amb670yf07 *priv)
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0x35, 0x00);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb9, 0x00);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xf0, 0xa5, 0xa5);
-	mipi_dsi_dcs_write_seq_multi(&ctx, 0x2a, 0x00, 0x00, 0x04, 0x37);
-	mipi_dsi_dcs_write_seq_multi(&ctx, 0x2b, 0x00, 0x00, 0x09, 0x6b);
+	mipi_dsi_dcs_write_seq_multi(&ctx, 0x2a, 0x00, 0x00, 0x05, 0x9f);
+	mipi_dsi_dcs_write_seq_multi(&ctx, 0x2b, 0x00, 0x00, 0x0c, 0x8f);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xf0, 0x5a, 0x5a);
-	mipi_dsi_dcs_write_seq_multi(&ctx, 0xc3, 0x89);
-	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb0, 0x00, 0x24, 0xc3);
-	mipi_dsi_dcs_write_seq_multi(&ctx, 0xc3,
-				     0xfd, 0x00, 0xfd, 0x00, 0xfd, 0x00, 0xfd, 0x00,
-				     0xfd, 0x00, 0xfd, 0x00, 0xfd, 0x00, 0xfd, 0x00,
-				     0xfd);
-	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb0, 0x00, 0x3a, 0xc3);
-	mipi_dsi_dcs_write_seq_multi(&ctx, 0xc3,
-				     0xb0, 0x00, 0xb0, 0x00, 0xb0, 0x00, 0xb0, 0x00,
-				     0xb0, 0x00, 0xb0, 0x00, 0xb0, 0x00, 0xb0, 0x00,
-				     0xb0);
-	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb0, 0x00, 0x50, 0xc3);
-	mipi_dsi_dcs_write_seq_multi(&ctx, 0xc3,
-				     0x43, 0x00, 0x43, 0x00, 0x43, 0x00, 0x43, 0x00,
-				     0x43, 0x00, 0x43, 0x00, 0x43, 0x00, 0x43, 0x00,
-				     0x43);
-	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb0, 0x00, 0x61, 0xc3);
-	mipi_dsi_dcs_write_seq_multi(&ctx, 0xc3,
-				     0xcc, 0xcc, 0xcc, 0xcc, 0xc0, 0xfe, 0x00, 0xfe,
-				     0x00, 0xfe, 0x00, 0xfe, 0x00, 0xfe, 0x00, 0xfe,
-				     0x00, 0xfe, 0x00, 0xfe, 0x00, 0xfe);
+	/* the DDIC's scaler off: the panel is native 1440x3216 */
+	mipi_dsi_dcs_write_seq_multi(&ctx, 0xc3, 0x00);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xf0, 0xa5, 0xa5);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xf0, 0x5a, 0x5a);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb0, 0x00, 0x2b, 0xf6);
@@ -259,17 +241,17 @@ static int amb670yf07_unprepare(struct drm_panel *panel)
 	return 0;
 }
 
-/* stock's timing@fhd_sdc_120 */
+/* stock's timing@wqhd_sdc_120 */
 static const struct drm_display_mode amb670yf07_mode = {
-	.clock = (1080 + 64 + 8 + 50) * (2412 + 2 + 2 + 8) * 120 / 1000,
-	.hdisplay = 1080,
-	.hsync_start = 1080 + 64,
-	.hsync_end = 1080 + 64 + 8,
-	.htotal = 1080 + 64 + 8 + 50,
-	.vdisplay = 2412,
-	.vsync_start = 2412 + 2,
-	.vsync_end = 2412 + 2 + 2,
-	.vtotal = 2412 + 2 + 2 + 8,
+	.clock = (1440 + 88 + 8 + 57) * (3216 + 8 + 8 + 8) * 120 / 1000,
+	.hdisplay = 1440,
+	.hsync_start = 1440 + 88,
+	.hsync_end = 1440 + 88 + 8,
+	.htotal = 1440 + 88 + 8 + 57,
+	.vdisplay = 3216,
+	.vsync_start = 3216 + 8,
+	.vsync_end = 3216 + 8 + 8,
+	.vtotal = 3216 + 8 + 8 + 8,
 	.width_mm = 70,
 	.height_mm = 156,
 	.type = DRM_MODE_TYPE_DRIVER,
@@ -377,9 +359,9 @@ static int amb670yf07_probe(struct mipi_dsi_device *dsi)
 	dsi->dsc = &ctx->dsc;
 	ctx->dsc.dsc_version_major = 1;
 	ctx->dsc.dsc_version_minor = 1;
-	ctx->dsc.slice_height = 36;
-	ctx->dsc.slice_width = 540;
-	ctx->dsc.slice_count = 1080 / ctx->dsc.slice_width;
+	ctx->dsc.slice_height = 24;
+	ctx->dsc.slice_width = 720;
+	ctx->dsc.slice_count = 1440 / ctx->dsc.slice_width;
 	ctx->dsc.bits_per_component = 10;
 	ctx->dsc.bits_per_pixel = 8 << 4; /* 4 fractional bits */
 	ctx->dsc.block_pred_enable = true;
