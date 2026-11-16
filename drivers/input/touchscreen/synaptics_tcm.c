@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Synaptics TouchComm touchscreen driver (SPI)
+ * Synaptics TouchComm touchscreen driver (SPI and I2C)
  *
  * Supports controllers that speak version 1 of the Synaptics TouchComm
- * protocol, such as the S3908 in the Google Pixel 7 Pro.
+ * protocol, such as the S3908 in the Google Pixel 7 Pro (SPI) and the
+ * OnePlus 10 Pro (I2C). The protocol is the same on both buses.
  *
  * Protocol and touch report parsing follow Google's GPL Synaptics TouchComm
  * driver for Pixel devices:
@@ -33,6 +34,7 @@
 #include <linux/crc-itu-t.h>
 #include <linux/delay.h>
 #include <linux/gpio/consumer.h>
+#include <linux/i2c.h>
 #include <linux/input.h>
 #include <linux/input/mt.h>
 #include <linux/input/touchscreen.h>
@@ -140,8 +142,19 @@ struct tcm_object {
 	u32 y_width;
 };
 
+struct tcm_ts;
+
+struct tcm_bus_ops {
+	int (*read)(struct tcm_ts *ts, u8 *buf, unsigned int len);
+	int (*write)(struct tcm_ts *ts, const u8 *buf, unsigned int len);
+};
+
 struct tcm_ts {
+	struct device *dev;
+	int irq;
+	const struct tcm_bus_ops *bus;
 	struct spi_device *spi;
+	struct i2c_client *client;
 	struct input_dev *input;
 	struct gpio_desc *reset_gpio;
 	struct touchscreen_properties prop;
@@ -184,7 +197,7 @@ struct tcm_ts {
 	/*
 	 * Waking the system on a touch (power/wakeup enabled): from
 	 * tcm_suspend() to tcm_resume() the IRQ thread reads nothing, since
-	 * the SPI controller may already be suspended. An attention that
+	 * the bus controller may already be suspended. An attention that
 	 * arrives then is left for tcm_resume() with the line disabled.
 	 */
 	bool suspended;
@@ -213,7 +226,7 @@ static int tcm_read_packet(struct tcm_ts *ts, unsigned int len)
 	int retry, error;
 
 	for (retry = 0; retry < TCM_READ_RETRIES; retry++) {
-		error = tcm_spi_read(ts, ts->rx, len);
+		error = ts->bus->read(ts, ts->rx, len);
 		if (error)
 			return error;
 		if (ts->rx[0] == TCM_MARKER)
@@ -234,6 +247,34 @@ static int tcm_spi_write(struct tcm_ts *ts, const u8 *buf, unsigned int len)
 	return spi_sync_transfer(ts->spi, &xfer, 1);
 }
 
+static const struct tcm_bus_ops tcm_spi_ops = {
+	.read = tcm_spi_read,
+	.write = tcm_spi_write,
+};
+
+static int tcm_i2c_read(struct tcm_ts *ts, u8 *buf, unsigned int len)
+{
+	int ret = i2c_master_recv(ts->client, buf, len);
+
+	if (ret < 0)
+		return ret;
+	return ret == len ? 0 : -EIO;
+}
+
+static int tcm_i2c_write(struct tcm_ts *ts, const u8 *buf, unsigned int len)
+{
+	int ret = i2c_master_send(ts->client, buf, len);
+
+	if (ret < 0)
+		return ret;
+	return ret == len ? 0 : -EIO;
+}
+
+static const struct tcm_bus_ops tcm_i2c_ops = {
+	.read = tcm_i2c_read,
+	.write = tcm_i2c_write,
+};
+
 /*
  * Read the payload of the message whose header was just read. Called with
  * io_lock held. Up to TCM_MAX_PAYLOAD bytes land in ts->rx + 2; anything
@@ -252,7 +293,7 @@ static int tcm_read_payload(struct tcm_ts *ts, unsigned int len)
 		 */
 		unsigned int left = len + 1 + extra;
 
-		dev_warn_ratelimited(&ts->spi->dev,
+		dev_warn_ratelimited(ts->dev,
 				     "dropping %u bytes of a %u byte message\n",
 				     len - TCM_MAX_PAYLOAD, len);
 		while (left) {
@@ -271,14 +312,14 @@ static int tcm_read_payload(struct tcm_ts *ts, unsigned int len)
 	xfer_len = 2 + len + 1 + extra;
 	error = tcm_read_packet(ts, xfer_len);
 	if (error) {
-		dev_err_ratelimited(&ts->spi->dev,
+		dev_err_ratelimited(ts->dev,
 				    "no payload for %u byte message: %d\n",
 				    len, error);
 		return error;
 	}
 
 	if (ts->rx[1] != TCM_STATUS_CONTINUED_READ) {
-		dev_err_ratelimited(&ts->spi->dev,
+		dev_err_ratelimited(ts->dev,
 				    "bad continued read header %02x %02x\n",
 				    ts->rx[0], ts->rx[1]);
 		return -EIO;
@@ -507,7 +548,7 @@ static int tcm_read_message(struct tcm_ts *ts)
 
 	error = tcm_read_packet(ts, TCM_HEADER_SIZE);
 	if (error) {
-		dev_err_ratelimited(&ts->spi->dev,
+		dev_err_ratelimited(ts->dev,
 				    "bad message header %*ph\n",
 				    TCM_HEADER_SIZE, ts->rx);
 		goto out_unlock;
@@ -525,11 +566,11 @@ static int tcm_read_message(struct tcm_ts *ts)
 	if (code == TCM_STATUS_CONTINUED_READ) {
 		/* A touched screen does this a few times a second */
 		if (!ts->desyncs++)
-			dev_warn(&ts->spi->dev,
+			dev_warn(ts->dev,
 				 "Out-of-sync continued read after message %#04x of %u bytes (more are only counted)\n",
 				 ts->last_code, ts->last_len);
 		else
-			dev_dbg(&ts->spi->dev,
+			dev_dbg(ts->dev,
 				"Out-of-sync continued read #%u after message %#04x of %u bytes\n",
 				ts->desyncs, ts->last_code, ts->last_len);
 		goto out_unlock;
@@ -552,7 +593,7 @@ static int tcm_read_message(struct tcm_ts *ts)
 			if (READ_ONCE(ts->input_ready))
 				tcm_report_touch(ts, ts->rx + 2, len);
 		} else if (code == TCM_REPORT_IDENTIFY) {
-			dev_dbg(&ts->spi->dev, "identify report\n");
+			dev_dbg(ts->dev, "identify report\n");
 			tcm_handle_identify(ts, ts->rx + 2, len);
 			/* It is the answer to a RESET command */
 			if (ts->cmd == TCM_CMD_RESET) {
@@ -566,7 +607,7 @@ static int tcm_read_message(struct tcm_ts *ts)
 
 	/* A response to the command in flight */
 	if (!ts->cmd) {
-		dev_warn_ratelimited(&ts->spi->dev,
+		dev_warn_ratelimited(ts->dev,
 				     "unexpected status %#04x\n", code);
 		return 0;
 	}
@@ -597,7 +638,7 @@ static irqreturn_t tcm_irq(int irq, void *data)
 		 */
 		disable_irq_nosync(irq);
 		WRITE_ONCE(ts->irq_deferred, true);
-		pm_wakeup_dev_event(&ts->spi->dev, 0, true);
+		pm_wakeup_dev_event(ts->dev, 0, true);
 		return IRQ_HANDLED;
 	}
 
@@ -633,7 +674,7 @@ static int tcm_command(struct tcm_ts *ts, u8 cmd, const u8 *payload,
 
 	reinit_completion(&ts->cmd_done);
 	ts->cmd = cmd;
-	error = tcm_spi_write(ts, ts->tx, size);
+	error = ts->bus->write(ts, ts->tx, size);
 	/* Reads clock out 0xff */
 	memset(ts->tx, 0xff, TCM_XFER_SIZE);
 	mutex_unlock(&ts->io_lock);
@@ -642,13 +683,13 @@ static int tcm_command(struct tcm_ts *ts, u8 cmd, const u8 *payload,
 
 	if (!wait_for_completion_timeout(&ts->cmd_done,
 					 msecs_to_jiffies(TCM_CMD_TIMEOUT_MS))) {
-		dev_err(&ts->spi->dev, "command %#04x timed out\n", cmd);
+		dev_err(ts->dev, "command %#04x timed out\n", cmd);
 		error = -ETIMEDOUT;
 		goto out;
 	}
 
 	if (ts->resp_code != TCM_STATUS_OK) {
-		dev_err(&ts->spi->dev, "command %#04x failed: status %#04x\n",
+		dev_err(ts->dev, "command %#04x failed: status %#04x\n",
 			cmd, ts->resp_code);
 		error = -EIO;
 		goto out;
@@ -676,7 +717,7 @@ static int tcm_wait_identify(struct tcm_ts *ts)
 
 static int tcm_reset_and_identify(struct tcm_ts *ts)
 {
-	struct device *dev = &ts->spi->dev;
+	struct device *dev = ts->dev;
 	u8 report = TCM_REPORT_HEAT_MAP;
 	u8 id[sizeof(ts->id)];
 	int error;
@@ -690,9 +731,9 @@ static int tcm_reset_and_identify(struct tcm_ts *ts)
 	error = tcm_wait_identify(ts);
 	if (error) {
 		/* Tell a dead bus from a dead interrupt line */
-		disable_irq(ts->spi->irq);
+		disable_irq(ts->irq);
 		tcm_read_message(ts);
-		enable_irq(ts->spi->irq);
+		enable_irq(ts->irq);
 		if (try_wait_for_completion(&ts->identify_done)) {
 			dev_err(dev, "identify report read, but ATTN interrupt never fired\n");
 			return error;
@@ -773,7 +814,7 @@ static int tcm_reset_and_identify(struct tcm_ts *ts)
 
 static int tcm_get_info(struct tcm_ts *ts)
 {
-	struct device *dev = &ts->spi->dev;
+	struct device *dev = ts->dev;
 	unsigned int cfg_size;
 	int ret;
 
@@ -824,7 +865,7 @@ static int tcm_get_info(struct tcm_ts *ts)
 
 static int tcm_input_init(struct tcm_ts *ts)
 {
-	struct device *dev = &ts->spi->dev;
+	struct device *dev = ts->dev;
 	struct input_dev *input;
 	u32 x_mm, y_mm;
 	int error;
@@ -872,33 +913,37 @@ static int tcm_input_init(struct tcm_ts *ts)
 	return 0;
 }
 
-static int tcm_probe(struct spi_device *spi)
+static struct tcm_ts *tcm_alloc(struct device *dev, int irq,
+				const struct tcm_bus_ops *bus)
 {
-	struct device *dev = &spi->dev;
 	struct tcm_ts *ts;
-	int error;
 
 	ts = devm_kzalloc(dev, sizeof(*ts), GFP_KERNEL);
 	if (!ts)
-		return -ENOMEM;
+		return NULL;
 
-	ts->spi = spi;
+	ts->dev = dev;
+	ts->irq = irq;
+	ts->bus = bus;
 	mutex_init(&ts->io_lock);
 	mutex_init(&ts->cmd_lock);
 	init_completion(&ts->cmd_done);
 	init_completion(&ts->identify_done);
-	spi_set_drvdata(spi, ts);
+	dev_set_drvdata(dev, ts);
 
 	ts->rx = devm_kzalloc(dev, TCM_XFER_SIZE, GFP_KERNEL);
 	ts->tx = devm_kmalloc(dev, TCM_XFER_SIZE, GFP_KERNEL);
 	if (!ts->rx || !ts->tx)
-		return -ENOMEM;
+		return NULL;
 	memset(ts->tx, 0xff, TCM_XFER_SIZE);
 
-	spi->bits_per_word = 8;
-	error = spi_setup(spi);
-	if (error)
-		return error;
+	return ts;
+}
+
+static int tcm_probe(struct tcm_ts *ts)
+{
+	struct device *dev = ts->dev;
+	int error;
 
 	/* Held in reset until the interrupt handler is ready */
 	ts->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_HIGH);
@@ -915,13 +960,13 @@ static int tcm_probe(struct spi_device *spi)
 		return dev_err_probe(dev, error, "failed to enable digital supply\n");
 	msleep(200);
 
-	error = devm_request_threaded_irq(dev, spi->irq, NULL, tcm_irq,
+	error = devm_request_threaded_irq(dev, ts->irq, NULL, tcm_irq,
 					  IRQF_ONESHOT | IRQF_NO_AUTOEN,
 					  dev_name(dev), ts);
 	if (error)
 		return dev_err_probe(dev, error, "failed to request IRQ\n");
 
-	enable_irq(spi->irq);
+	enable_irq(ts->irq);
 
 	error = tcm_reset_and_identify(ts);
 	if (error)
@@ -955,9 +1000,39 @@ static int tcm_probe(struct spi_device *spi)
 	return 0;
 }
 
+static int tcm_spi_probe(struct spi_device *spi)
+{
+	struct tcm_ts *ts;
+	int error;
+
+	ts = tcm_alloc(&spi->dev, spi->irq, &tcm_spi_ops);
+	if (!ts)
+		return -ENOMEM;
+	ts->spi = spi;
+
+	spi->bits_per_word = 8;
+	error = spi_setup(spi);
+	if (error)
+		return error;
+
+	return tcm_probe(ts);
+}
+
+static int tcm_i2c_probe(struct i2c_client *client)
+{
+	struct tcm_ts *ts;
+
+	ts = tcm_alloc(&client->dev, client->irq, &tcm_i2c_ops);
+	if (!ts)
+		return -ENOMEM;
+	ts->client = client;
+
+	return tcm_probe(ts);
+}
+
 /*
  * Keep the attention interrupt from reading anything across system sleep:
- * it can fire after the SPI controller has suspended, and a read then
+ * it can fire after the bus controller has suspended, and a read then
  * fails part way and leaves the message stream out of step.
  *
  * By default the interrupt is simply off. When user space has enabled the
@@ -968,7 +1043,7 @@ static int tcm_probe(struct spi_device *spi)
 static int tcm_suspend(struct device *dev)
 {
 	struct tcm_ts *ts = dev_get_drvdata(dev);
-	int irq = ts->spi->irq;
+	int irq = ts->irq;
 
 	if (!device_may_wakeup(dev)) {
 		disable_irq(irq);
@@ -986,7 +1061,7 @@ static int tcm_suspend(struct device *dev)
 static int tcm_resume(struct device *dev)
 {
 	struct tcm_ts *ts = dev_get_drvdata(dev);
-	int irq = ts->spi->irq;
+	int irq = ts->irq;
 
 	if (!READ_ONCE(ts->suspended)) {
 		enable_irq(irq);
@@ -1019,16 +1094,54 @@ static const struct spi_device_id tcm_spi_ids[] = {
 };
 MODULE_DEVICE_TABLE(spi, tcm_spi_ids);
 
-static struct spi_driver tcm_driver = {
+static struct spi_driver tcm_spi_driver = {
 	.driver = {
 		.name = "synaptics-tcm",
 		.of_match_table = tcm_of_match,
 		.pm = pm_sleep_ptr(&tcm_pm_ops),
 	},
 	.id_table = tcm_spi_ids,
-	.probe = tcm_probe,
+	.probe = tcm_spi_probe,
 };
-module_spi_driver(tcm_driver);
+
+static const struct i2c_device_id tcm_i2c_ids[] = {
+	{ "s3908" },
+	{ }
+};
+MODULE_DEVICE_TABLE(i2c, tcm_i2c_ids);
+
+static struct i2c_driver tcm_i2c_driver = {
+	.driver = {
+		.name = "synaptics-tcm",
+		.of_match_table = tcm_of_match,
+		.pm = pm_sleep_ptr(&tcm_pm_ops),
+	},
+	.id_table = tcm_i2c_ids,
+	.probe = tcm_i2c_probe,
+};
+
+static int __init tcm_init(void)
+{
+	int error;
+
+	error = spi_register_driver(&tcm_spi_driver);
+	if (error)
+		return error;
+
+	error = i2c_add_driver(&tcm_i2c_driver);
+	if (error)
+		spi_unregister_driver(&tcm_spi_driver);
+
+	return error;
+}
+module_init(tcm_init);
+
+static void __exit tcm_exit(void)
+{
+	i2c_del_driver(&tcm_i2c_driver);
+	spi_unregister_driver(&tcm_spi_driver);
+}
+module_exit(tcm_exit);
 
 MODULE_DESCRIPTION("Synaptics TouchComm touchscreen driver");
 MODULE_LICENSE("GPL");

@@ -1333,14 +1333,15 @@ config TOUCHSCREEN_FOCALTECH_FT3658
 	  module will be called focaltech_ft3658.
 
 config TOUCHSCREEN_SYNAPTICS_TCM_SPI
-	tristate "Synaptics TouchComm SPI touchscreen"
+	tristate "Synaptics TouchComm SPI and I2C touchscreen"
 	depends on SPI
+	depends on I2C
 	depends on GPIOLIB || COMPILE_TEST
 	select CRC_ITU_T
 	help
 	  Say Y here if you have a Synaptics touchscreen controller that
-	  speaks the TouchComm protocol over SPI, such as the S3908 in the
-	  Google Pixel 7 Pro.
+	  speaks the TouchComm protocol over SPI or I2C, such as the S3908
+	  in the Google Pixel 7 Pro (SPI) or the OnePlus 10 Pro (I2C).
 
 	  If unsure, say N.
 
