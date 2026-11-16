@@ -22,6 +22,7 @@
 
 #include <drm/display/drm_dsc_helper.h>
 #include <drm/drm_of.h>
+#include <drm/drm_panel.h>
 
 #include "dsi.h"
 #include "dsi.xml.h"
@@ -104,6 +105,12 @@ struct msm_dsi_host {
 
 	struct platform_device *pdev;
 	struct drm_device *dev;
+
+	/*
+	 * The attached device's drm_panel, if it is one, told the refresh
+	 * rate of each mode set (drm_panel_set_refresh_rate()).
+	 */
+	struct drm_panel *panel;
 
 	int id;
 
@@ -1713,6 +1720,7 @@ static int dsi_host_attach(struct mipi_dsi_host *host,
 					struct mipi_dsi_device *dsi)
 {
 	struct msm_dsi_host *msm_host = to_msm_dsi_host(host);
+	struct drm_panel *panel;
 	int ret;
 
 	if (dsi->lanes > msm_host->num_data_lanes)
@@ -1754,6 +1762,11 @@ static int dsi_host_attach(struct mipi_dsi_host *host,
 	if (ret)
 		return ret;
 
+	/* the panel driver adds its drm_panel before attaching */
+	panel = of_drm_find_panel(dsi->dev.of_node);
+	if (!IS_ERR(panel))
+		msm_host->panel = panel;
+
 	DBG("id=%d", msm_host->id);
 
 	return 0;
@@ -1763,6 +1776,11 @@ static int dsi_host_detach(struct mipi_dsi_host *host,
 					struct mipi_dsi_device *dsi)
 {
 	struct msm_dsi_host *msm_host = to_msm_dsi_host(host);
+
+	if (msm_host->panel && msm_host->panel->dev == &dsi->dev) {
+		drm_panel_put(msm_host->panel);
+		msm_host->panel = NULL;
+	}
 
 	dsi_dev_detach(msm_host->pdev);
 
@@ -2594,6 +2612,21 @@ int msm_dsi_host_set_display_mode(struct mipi_dsi_host *host,
 	if (!msm_host->mode) {
 		pr_err("%s: cannot duplicate mode\n", __func__);
 		return -ENOMEM;
+	}
+
+	/*
+	 * A panel whose init sequence depends on the refresh rate learns it
+	 * here, before the bridge chain prepares it. -EOPNOTSUPP means the
+	 * panel has a single rate.
+	 */
+	if (msm_host->panel) {
+		int ret = drm_panel_set_refresh_rate(msm_host->panel,
+						     drm_mode_vrefresh(mode));
+
+		if (ret && ret != -EOPNOTSUPP)
+			dev_warn(&msm_host->pdev->dev,
+				 "panel refused %d Hz: %d\n",
+				 drm_mode_vrefresh(mode), ret);
 	}
 
 	return 0;
