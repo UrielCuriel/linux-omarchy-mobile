@@ -341,6 +341,12 @@
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
 		};
 
+		vreg_l7c_3p0: ldo7 {
+			regulator-min-microvolt = <3008000>;
+			regulator-max-microvolt = <3008000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
 		vreg_l12c_1p8: ldo12 {
 			regulator-min-microvolt = <1800000>;
 			regulator-max-microvolt = <1800000>;
@@ -374,6 +380,10 @@
 	status = "okay";
 };
 
+&gpi_dma1 {
+	status = "okay";
+};
+
 &gpu {
 	status = "okay";
 };
@@ -401,6 +411,28 @@
 
 		touchscreen-x-mm = <70>;
 		touchscreen-y-mm = <156>;
+	};
+};
+
+&i2c9 {
+	clock-frequency = <400000>;
+	status = "okay";
+
+	/* two MXM1120 Hall sensors, as stock's hall_m1120_up/down */
+	alert-slider@d {
+		compatible = "oneplus,mxm1120-alert-slider";
+		reg = <0x0d>, <0x0c>;
+		reg-names = "up", "down";
+
+		interrupts-extended = <&tlmm 117 IRQ_TYPE_EDGE_FALLING>,
+				      <&tlmm 71 IRQ_TYPE_EDGE_FALLING>;
+		interrupt-names = "up", "down";
+
+		vdd-supply = <&vreg_l7c_3p0>;
+		vio-supply = <&vreg_s10b_1p8>;
+
+		pinctrl-0 = <&hall_up_int>, <&hall_down_int>;
+		pinctrl-names = "default";
 	};
 };
 
@@ -548,6 +580,20 @@
 		bias-pull-down;
 	};
 
+	hall_down_int: hall-down-int-state {
+		pins = "gpio71";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-up;
+	};
+
+	hall_up_int: hall-up-int-state {
+		pins = "gpio117";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-up;
+	};
+
 	panel_default: panel-default-state {
 		pins = "gpio3", "gpio90";
 		function = "gpio";
@@ -627,6 +673,10 @@
 };
 
 &qupv3_id_0 {
+	status = "okay";
+};
+
+&qupv3_id_1 {
 	status = "okay";
 };
 
