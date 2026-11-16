@@ -37,7 +37,7 @@
 		/*
 		 * The panel's default timing is fhd_sdc_60 (1080x2412); the
 		 * native 1440x3216 mode is only selected later by Android.
-		 * To be confirmed on the first boot.
+		 * ABL scans out at 1080x2412: the console reads correctly.
 		 */
 		framebuffer: framebuffer@b8000000 {
 			compatible = "simple-framebuffer";
@@ -194,6 +194,18 @@
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
 		};
 	};
+};
+
+/*
+ * Enabled without a driver (DRM_MSM is a module the first-light initramfs
+ * never loads): as a consumer that never probes it keeps the sync_state of
+ * gcc, the interconnects and rpmhpd pending, so nothing the splash scan-out
+ * ABL set up depends on is turned off. Whether the scan-out needs this has
+ * not been tested on its own: it was added while chasing a dark screen that
+ * turned out to be a SoC reset at dwc3 probe.
+ */
+&mdss {
+	status = "okay";
 };
 
 &pm8350_gpios {
