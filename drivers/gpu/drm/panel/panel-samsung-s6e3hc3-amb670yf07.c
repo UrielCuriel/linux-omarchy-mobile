@@ -1,11 +1,18 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Samsung S6E3HC3 DDIC with the AMB670YF07 command-mode AMOLED panel
- * (OnePlus 10 Pro), driven at 1080x2412 with DSC.
+ * (OnePlus 10 Pro), driven at 1080x2412 and 120 Hz with DSC.
  *
  * The init sequence, timings and DSC slice layout come from the stock
  * vendor devicetree (qcom,mdss_dsi_panel_samsung_amb670yf07_1440_3216_dsc_cmd,
- * its default 1080x2412 60 Hz timing).
+ * its 1080x2412 120 Hz timing).
+ *
+ * The panel scans on a 120 Hz grid in every mode: at 60 Hz, stock's
+ * sequence leaves its adaptive refresh on, and TE comes every second slot
+ * or every slot. With the DSI link clocked for 60 Hz a frame takes a whole
+ * 60 Hz period to send, misses the next slot and lands on the third (40
+ * fps). The 120 Hz timing clocks the link close to stock's (894 against
+ * 825.6 Mbps per lane) and TE comes on every slot.
  */
 
 #include <linux/backlight.h>
@@ -87,7 +94,7 @@ static int amb670yf07_on(struct amb670yf07 *priv)
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb0, 0x00, 0x22, 0xb9);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb9, 0xa1, 0xb1);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb0, 0x00, 0x3a, 0xb9);
-	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb9, 0x05);
+	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb9, 0x02);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb0, 0x00, 0x26, 0xb9);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb9, 0x00, 0x00);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xf7, 0x0f);
@@ -96,7 +103,7 @@ static int amb670yf07_on(struct amb670yf07 *priv)
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb0, 0x00, 0x24, 0xb9);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb9, 0x21);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb0, 0x00, 0x38, 0xb9);
-	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb9, 0x05);
+	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb9, 0x02);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb0, 0x00, 0x2a, 0xb9);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb9, 0x00, 0x00);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xf7, 0x0f);
@@ -107,14 +114,14 @@ static int amb670yf07_on(struct amb670yf07 *priv)
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xf2, 0x1b, 0x50);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb0, 0x00, 0x08, 0xcb);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xcb, 0x24);
-	mipi_dsi_dcs_write_seq_multi(&ctx, 0x60, 0x01);
+	mipi_dsi_dcs_write_seq_multi(&ctx, 0x60, 0x00);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xbd, 0x23, 0x02);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb0, 0x00, 0x10, 0xbd);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xbd, 0x00);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb0, 0x00, 0x16, 0xbd);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xbd, 0x77);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xb0, 0x00, 0x14, 0xbd);
-	mipi_dsi_dcs_write_seq_multi(&ctx, 0xbd, 0x01);
+	mipi_dsi_dcs_write_seq_multi(&ctx, 0xbd, 0x00);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xf7, 0x0f);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xf0, 0xa5, 0xa5);
 	mipi_dsi_dcs_write_seq_multi(&ctx, 0xf0, 0x5a, 0x5a);
@@ -252,13 +259,13 @@ static int amb670yf07_unprepare(struct drm_panel *panel)
 	return 0;
 }
 
-/* stock's timing@fhd_sdc_60 */
+/* stock's timing@fhd_sdc_120 */
 static const struct drm_display_mode amb670yf07_mode = {
-	.clock = (1080 + 64 + 8 + 48) * (2412 + 2 + 2 + 8) * 60 / 1000,
+	.clock = (1080 + 64 + 8 + 50) * (2412 + 2 + 2 + 8) * 120 / 1000,
 	.hdisplay = 1080,
 	.hsync_start = 1080 + 64,
 	.hsync_end = 1080 + 64 + 8,
-	.htotal = 1080 + 64 + 8 + 48,
+	.htotal = 1080 + 64 + 8 + 50,
 	.vdisplay = 2412,
 	.vsync_start = 2412 + 2,
 	.vsync_end = 2412 + 2 + 2,
