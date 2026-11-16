@@ -69,6 +69,19 @@
 		};
 	};
 
+	/* The touchscreen's 1.8 V rail, switched by GPIO 186 (stock: enable1v8_gpio) */
+	ts_vdd_1p8: regulator-ts-vdd-1p8 {
+		compatible = "regulator-fixed";
+		regulator-name = "ts_vdd_1p8";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		vin-supply = <&vreg_l6c_1p8>;
+		gpio = <&tlmm 186 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		pinctrl-0 = <&ts_vdd_en>;
+		pinctrl-names = "default";
+	};
+
 	vph_pwr: regulator-vph-pwr {
 		compatible = "regulator-fixed";
 		regulator-name = "vph_pwr";
@@ -213,6 +226,18 @@
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
 		};
 
+		vreg_l3c_3p0: ldo3 {
+			regulator-min-microvolt = <3008000>;
+			regulator-max-microvolt = <3008000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
+		vreg_l6c_1p8: ldo6 {
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
+			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+		};
+
 		vreg_l12c_1p8: ldo12 {
 			regulator-min-microvolt = <1800000>;
 			regulator-max-microvolt = <1800000>;
@@ -224,6 +249,32 @@
 			regulator-max-microvolt = <3000000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
 		};
+	};
+};
+
+&gpi_dma0 {
+	status = "okay";
+};
+
+&i2c4 {
+	clock-frequency = <400000>;
+	status = "okay";
+
+	touchscreen@4b {
+		compatible = "syna,s3908";
+		reg = <0x4b>;
+
+		interrupts-extended = <&tlmm 21 IRQ_TYPE_LEVEL_LOW>;
+		reset-gpios = <&tlmm 20 GPIO_ACTIVE_LOW>;
+
+		vdd-supply = <&ts_vdd_1p8>;
+		avdd-supply = <&vreg_l3c_3p0>;
+
+		pinctrl-0 = <&ts_int_default>, <&ts_reset_default>;
+		pinctrl-names = "default";
+
+		touchscreen-x-mm = <70>;
+		touchscreen-y-mm = <156>;
 	};
 };
 
@@ -348,6 +399,31 @@
 		drive-strength = <2>;
 		bias-pull-down;
 	};
+
+	ts_int_default: ts-int-default-state {
+		pins = "gpio21";
+		function = "gpio";
+		drive-strength = <8>;
+		bias-disable;
+	};
+
+	ts_reset_default: ts-reset-default-state {
+		pins = "gpio20";
+		function = "gpio";
+		drive-strength = <8>;
+		bias-disable;
+	};
+
+	ts_vdd_en: ts-vdd-en-state {
+		pins = "gpio186";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+	};
+};
+
+&qupv3_id_0 {
+	status = "okay";
 };
 
 &usb_1 {
