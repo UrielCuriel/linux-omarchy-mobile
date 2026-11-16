@@ -32,6 +32,10 @@
 		      <0x228 0x10000>, <0x1e2 0x10000>;
 	qcom,board-id = <0x10008 0>;
 
+	aliases {
+		serial1 = &uart20;
+	};
+
 	chosen {
 		#address-cells = <2>;
 		#size-cells = <2>;
@@ -561,6 +565,32 @@
 		bias-disable;
 	};
 
+	uart20_default: uart20-default-state {
+		cts-pins {
+			pins = "gpio76";
+			function = "qup20";
+			bias-disable;
+		};
+
+		rts-pins {
+			pins = "gpio77";
+			function = "qup20";
+			bias-disable;
+		};
+
+		rx-pins {
+			pins = "gpio78";
+			function = "qup20";
+			bias-disable;
+		};
+
+		tx-pins {
+			pins = "gpio79";
+			function = "qup20";
+			bias-disable;
+		};
+	};
+
 	wlan_en: wlan-en-state {
 		pins = "gpio80";
 		function = "gpio";
@@ -587,6 +617,30 @@
 
 &qupv3_id_0 {
 	status = "okay";
+};
+
+&qupv3_id_2 {
+	status = "okay";
+};
+
+&uart20 {
+	pinctrl-0 = <&uart20_default>;
+	pinctrl-names = "default";
+
+	status = "okay";
+
+	bluetooth {
+		compatible = "qcom,wcn6855-bt";
+
+		vddrfacmn-supply = <&vreg_pmu_rfa_cmn_0p8>;
+		vddaon-supply = <&vreg_pmu_aon_0p8>;
+		vddwlcx-supply = <&vreg_pmu_wlcx_0p8>;
+		vddwlmx-supply = <&vreg_pmu_wlmx_0p8>;
+		vddbtcmx-supply = <&vreg_pmu_btcmx_0p8>;
+		vddrfa0p8-supply = <&vreg_pmu_rfa_0p8>;
+		vddrfa1p2-supply = <&vreg_pmu_rfa_1p2>;
+		vddrfa1p7-supply = <&vreg_pmu_rfa_1p7>;
+	};
 };
 
 &usb_1 {
