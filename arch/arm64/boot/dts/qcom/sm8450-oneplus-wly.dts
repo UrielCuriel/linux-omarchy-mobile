@@ -2,10 +2,10 @@
 /*
  * OnePlus 10 Pro (wly, NE2215): first-light device tree.
  *
- * Describes the splash framebuffer, the display (DSI panel), touch, Wi-Fi,
- * Bluetooth, UFS, USB 2.0, the buttons and the PMK8350's RTC and ADC. Every value comes from the
- * stock device tree that ABL hands to the OxygenOS 15.0.0.1302 kernel
- * (/sys/firmware/fdt).
+ * Describes the splash framebuffer, the display (DSI panel), the GPU, touch,
+ * Wi-Fi, Bluetooth, UFS, USB 2.0, the buttons and the PMK8350's RTC and
+ * ADC. Every value comes from the stock device tree that ABL hands to the
+ * OxygenOS 15.0.0.1302 kernel (/sys/firmware/fdt).
  */
 
 /dts-v1/;
@@ -372,6 +372,14 @@
 
 &gpi_dma0 {
 	status = "okay";
+};
+
+&gpu {
+	status = "okay";
+};
+
+&gpu_zap_shader {
+	firmware-name = "qcom/sm8450/oneplus/wly/a730_zap.mbn";
 };
 
 &i2c4 {
