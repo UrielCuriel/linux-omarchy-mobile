@@ -122,6 +122,16 @@
 };
 
 /* Stock's SLPI region starts 1 MiB below sm8450.dtsi's and ends at the same place */
+/*
+ * Stock gives the CDSP secure heap 1 MiB, not sm8450.dtsi's 70; the rest is
+ * plain RAM on this board, where the 70 MiB failed to reserve ("failed to
+ * reserve memory for node 'memory@80c00000'") once the kexec'd kernel sat
+ * in it.
+ */
+&cdsp_secure_heap {
+	reg = <0x0 0x80c00000 0x0 0x100000>;
+};
+
 &slpi_mem {
 	reg = <0x0 0x87f00000 0x0 0x1a00000>;
 };
