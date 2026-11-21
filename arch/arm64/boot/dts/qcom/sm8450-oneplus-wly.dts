@@ -149,8 +149,8 @@
 
 	/*
 	 * The ADSP's battery manager and USB-C port, through pmic_glink. The
-	 * connector carries the cable's orientation to the QMP PHY (altmode);
-	 * the controller's role stays fixed (peripheral) for now.
+	 * connector carries the cable's orientation to the QMP PHY (altmode)
+	 * and, through UCSI, the data role to the controller's role switch.
 	 */
 	pmic-glink {
 		compatible = "qcom,sm8450-pmic-glink", "qcom,pmic-glink";
@@ -787,8 +787,6 @@
 };
 
 &usb_1 {
-	/* A fixed peripheral: nothing tells the controller its role yet */
-	dr_mode = "peripheral";
 	maximum-speed = "super-speed";
 
 	status = "okay";
