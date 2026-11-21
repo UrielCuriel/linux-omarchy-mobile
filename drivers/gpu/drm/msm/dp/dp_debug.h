@@ -17,7 +17,6 @@
  * @dev: device instance of the caller
  * @panel: instance of panel module
  * @link: instance of link module
- * @connector: double pointer to display connector
  * @root: connector's debugfs root
  * @is_edp: set for eDP connectors / panels
  * return: pointer to allocated debug module data
@@ -27,7 +26,6 @@
  */
 int msm_dp_debug_init(struct device *dev, struct msm_dp_panel *panel,
 		  struct msm_dp_link *link,
-		  struct drm_connector *connector,
 		  struct dentry *root,
 		  bool is_edp);
 
@@ -36,7 +34,6 @@ int msm_dp_debug_init(struct device *dev, struct msm_dp_panel *panel,
 static inline
 int msm_dp_debug_init(struct device *dev, struct msm_dp_panel *panel,
 		  struct msm_dp_link *link,
-		  struct drm_connector *connector,
 		  struct dentry *root,
 		  bool is_edp)
 {

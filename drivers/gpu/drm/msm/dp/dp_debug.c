@@ -21,8 +21,18 @@
 struct msm_dp_debug_private {
 	struct msm_dp_link *link;
 	struct msm_dp_panel *panel;
-	struct drm_connector *connector;
 };
+
+/*
+ * The connector is created after the bridge, whose debugfs_init runs at
+ * attach time, so look it up on each access rather than caching it.
+ */
+static bool msm_dp_debug_connected(const struct msm_dp_debug_private *debug)
+{
+	const struct drm_connector *connector = debug->panel->connector;
+
+	return connector && connector->status == connector_status_connected;
+}
 
 static int msm_dp_debug_show(struct seq_file *seq, void *p)
 {
@@ -89,10 +99,9 @@ DEFINE_SHOW_ATTRIBUTE(msm_dp_debug);
 static int msm_dp_test_data_show(struct seq_file *m, void *data)
 {
 	const struct msm_dp_debug_private *debug = m->private;
-	const struct drm_connector *connector = debug->connector;
 	u32 bpc;
 
-	if (connector->status == connector_status_connected) {
+	if (msm_dp_debug_connected(debug)) {
 		bpc = debug->link->test_video.test_bit_depth;
 		seq_printf(m, "hdisplay: %d\n",
 				debug->link->test_video.test_h_width);
@@ -111,9 +120,8 @@ DEFINE_SHOW_ATTRIBUTE(msm_dp_test_data);
 static int msm_dp_test_type_show(struct seq_file *m, void *data)
 {
 	const struct msm_dp_debug_private *debug = m->private;
-	const struct drm_connector *connector = debug->connector;
 
-	if (connector->status == connector_status_connected)
+	if (msm_dp_debug_connected(debug))
 		seq_printf(m, "%02x", DP_TEST_LINK_VIDEO_PATTERN);
 	else
 		seq_puts(m, "0");
@@ -129,11 +137,9 @@ static ssize_t msm_dp_test_active_write(struct file *file,
 	char *input_buffer;
 	int status = 0;
 	const struct msm_dp_debug_private *debug;
-	const struct drm_connector *connector;
 	int val = 0;
 
 	debug = ((struct seq_file *)file->private_data)->private;
-	connector = debug->connector;
 
 	if (len == 0)
 		return 0;
@@ -144,7 +150,7 @@ static ssize_t msm_dp_test_active_write(struct file *file,
 
 	DRM_DEBUG_DRIVER("Copied %d bytes from user\n", (unsigned int)len);
 
-	if (connector->status == connector_status_connected) {
+	if (msm_dp_debug_connected(debug)) {
 		status = kstrtoint(input_buffer, 10, &val);
 		if (status < 0) {
 			kfree(input_buffer);
@@ -168,9 +174,8 @@ static ssize_t msm_dp_test_active_write(struct file *file,
 static int msm_dp_test_active_show(struct seq_file *m, void *data)
 {
 	struct msm_dp_debug_private *debug = m->private;
-	struct drm_connector *connector = debug->connector;
 
-	if (connector->status == connector_status_connected) {
+	if (msm_dp_debug_connected(debug)) {
 		if (debug->panel->video_test)
 			seq_puts(m, "1");
 		else
@@ -200,7 +205,6 @@ static const struct file_operations test_active_fops = {
 
 int msm_dp_debug_init(struct device *dev, struct msm_dp_panel *panel,
 		  struct msm_dp_link *link,
-		  struct drm_connector *connector,
 		  struct dentry *root, bool is_edp)
 {
 	struct msm_dp_debug_private *debug;
