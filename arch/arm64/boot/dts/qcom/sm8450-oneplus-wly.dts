@@ -182,6 +182,14 @@
 						remote-endpoint = <&usb_1_qmpphy_out>;
 					};
 				};
+
+				port@2 {
+					reg = <2>;
+
+					pmic_glink_sbu: endpoint {
+						remote-endpoint = <&fsa4480_sbu_mux>;
+					};
+				};
 			};
 		};
 	};
@@ -514,8 +522,40 @@
 	};
 };
 
+/* Stock fsa4480_new@42: the USB-C SBU switch (DisplayPort AUX), on SE14 */
+&i2c14 {
+	status = "okay";
+
+	typec-mux@42 {
+		compatible = "fcs,fsa4480";
+		reg = <0x42>;
+
+		mode-switch;
+		orientation-switch;
+
+		port {
+			fsa4480_sbu_mux: endpoint {
+				remote-endpoint = <&pmic_glink_sbu>;
+			};
+		};
+	};
+};
+
 &mdss {
 	status = "okay";
+};
+
+/*
+ * DisplayPort over USB-C (DP Alt Mode): the ADSP negotiates it and
+ * pmic_glink_altmode switches the combo PHY. Two lanes, so the other two
+ * stay USB 3 (the hub enumerates at 5 Gbit/s alongside).
+ */
+&mdss_dp0 {
+	status = "okay";
+};
+
+&mdss_dp0_out {
+	data-lanes = <0 1>;
 };
 
 &mdss_dsi0 {
