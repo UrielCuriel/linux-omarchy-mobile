@@ -10,15 +10,20 @@
  * BC_CID_DETECT on insertion and BC_OTG_ENABLE / BC_OTG_DISABLE, and the
  * vendor kernel switches an external boost converter accordingly.
  *
- * Step A (this version): verify the property numbering by reading a few
- * properties, set USB_OTG_AP_ENABLE, and log the OTG notifications. It does
- * not touch any GPIO and powers nothing.
+ * At start-up it checks the property numbering by reading a few properties,
+ * then sets USB_OTG_AP_ENABLE. On BC_OTG_ENABLE it powers the port the way
+ * the vendor kernel does (captured on stock): it isolates the wireless
+ * receiver (wrx-en), waits 50 ms, then opens the OVP switch (ovp-en) and
+ * starts the boost converter (boost-en); BC_OTG_DISABLE, an ADSP restart,
+ * removal and shutdown undo it in reverse order.
  *
  * Property ids and notification codes come from OnePlus's GPL charger driver
  * (vendor/oplus/kernel/charger/charger_ic/oplus_battery_sm8450.h).
  */
 
 #include <linux/completion.h>
+#include <linux/delay.h>
+#include <linux/gpio/consumer.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/of.h>
@@ -67,8 +72,20 @@ struct oplus_otg_notify {
 	__le32 notification;
 };
 
+/* Handed from the DT device to the pmic_glink client it creates */
+struct oplus_otg_gpios {
+	struct gpio_desc *wrx;
+	struct gpio_desc *ovp;
+	struct gpio_desc *boost;
+};
+
 struct oplus_otg {
 	struct device *dev;
+	struct oplus_otg_gpios gpios;
+	struct work_struct otg_work;
+	struct mutex otg_lock;		/* serialises power changes */
+	bool otg_want;			/* what the ADSP last asked for */
+	bool otg_on;			/* what the GPIOs are set to */
 	struct pmic_glink_client *client;
 	struct work_struct init_work;
 	struct mutex lock;		/* one request in flight */
@@ -141,6 +158,38 @@ static void oplus_otg_init_work(struct work_struct *work)
 	oplus_otg_read(otg, USB_OTG_AP_ENABLE, "otg_ap_enable");
 }
 
+static void oplus_otg_power(struct oplus_otg *otg, bool on)
+{
+	struct oplus_otg_gpios *g = &otg->gpios;
+
+	mutex_lock(&otg->otg_lock);
+	if (on == otg->otg_on)
+		goto out;
+
+	if (on) {
+		gpiod_set_value_cansleep(g->wrx, 1);
+		msleep(50);
+		gpiod_set_value_cansleep(g->ovp, 1);
+		gpiod_set_value_cansleep(g->boost, 1);
+	} else {
+		gpiod_set_value_cansleep(g->ovp, 0);
+		gpiod_set_value_cansleep(g->boost, 0);
+		msleep(50);
+		gpiod_set_value_cansleep(g->wrx, 0);
+	}
+	otg->otg_on = on;
+	dev_info(otg->dev, "OTG power %s\n", on ? "on" : "off");
+out:
+	mutex_unlock(&otg->otg_lock);
+}
+
+static void oplus_otg_work(struct work_struct *work)
+{
+	struct oplus_otg *otg = container_of(work, struct oplus_otg, otg_work);
+
+	oplus_otg_power(otg, READ_ONCE(otg->otg_want));
+}
+
 static const char *oplus_otg_name(unsigned int code)
 {
 	switch (code) {
@@ -166,6 +215,15 @@ static void oplus_otg_callback(const void *data, size_t len, void *priv)
 
 		if (name)
 			dev_info(otg->dev, "ADSP: %s (%#x)\n", name, code);
+		else if ((code & 0xff) >= 0x50 && (code & 0xff) <= 0x7f)
+			dev_info(otg->dev, "ADSP: notification %#x (len %zu)\n",
+				 code, len);
+
+		/* Called in atomic context; the PMIC GPIO may sleep */
+		if ((code & 0xff) == BC_OTG_ENABLE || (code & 0xff) == BC_OTG_DISABLE) {
+			WRITE_ONCE(otg->otg_want, (code & 0xff) == BC_OTG_ENABLE);
+			schedule_work(&otg->otg_work);
+		}
 		return;
 	}
 
@@ -185,8 +243,13 @@ static void oplus_otg_pdr(void *priv, int state)
 {
 	struct oplus_otg *otg = priv;
 
-	if (state == SERVREG_SERVICE_STATE_UP)
+	if (state == SERVREG_SERVICE_STATE_UP) {
 		schedule_work(&otg->init_work);
+	} else {
+		/* ADSP gone: nobody to stop the boost, so stop it now */
+		WRITE_ONCE(otg->otg_want, false);
+		schedule_work(&otg->otg_work);
+	}
 }
 
 /*
@@ -199,14 +262,21 @@ static void oplus_otg_pdr(void *priv, int state)
 
 static int oplus_otg_client_probe(struct platform_device *pdev)
 {
+	const struct oplus_otg_gpios *gpios = dev_get_platdata(&pdev->dev);
 	struct oplus_otg *otg;
+
+	if (!gpios)
+		return -EINVAL;
 
 	otg = devm_kzalloc(&pdev->dev, sizeof(*otg), GFP_KERNEL);
 	if (!otg)
 		return -ENOMEM;
 
 	otg->dev = &pdev->dev;
+	otg->gpios = *gpios;
 	mutex_init(&otg->lock);
+	mutex_init(&otg->otg_lock);
+	INIT_WORK(&otg->otg_work, oplus_otg_work);
 	init_completion(&otg->ack);
 	INIT_WORK(&otg->init_work, oplus_otg_init_work);
 
@@ -227,13 +297,25 @@ static void oplus_otg_client_remove(struct platform_device *pdev)
 {
 	struct oplus_otg *otg = platform_get_drvdata(pdev);
 
+	if (!otg)
+		return;
+	cancel_work_sync(&otg->init_work);
+	cancel_work_sync(&otg->otg_work);
+	oplus_otg_power(otg, false);
+}
+
+static void oplus_otg_client_shutdown(struct platform_device *pdev)
+{
+	struct oplus_otg *otg = platform_get_drvdata(pdev);
+
 	if (otg)
-		cancel_work_sync(&otg->init_work);
+		oplus_otg_power(otg, false);
 }
 
 static struct platform_driver oplus_otg_client_driver = {
 	.probe = oplus_otg_client_probe,
 	.remove = oplus_otg_client_remove,
+	.shutdown = oplus_otg_client_shutdown,
 	.driver = {
 		.name = OPLUS_OTG_CLIENT,
 		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
@@ -253,8 +335,20 @@ static void oplus_otg_put(void *data)
 static int oplus_otg_probe(struct platform_device *pdev)
 {
 	struct platform_device *pg, *child;
+	struct oplus_otg_gpios gpios;
 	struct device_node *np;
 	int ret;
+
+	/* All off, as stock leaves them at boot */
+	gpios.wrx = devm_gpiod_get(&pdev->dev, "wrx-en", GPIOD_OUT_LOW);
+	if (IS_ERR(gpios.wrx))
+		return dev_err_probe(&pdev->dev, PTR_ERR(gpios.wrx), "wrx-en\n");
+	gpios.ovp = devm_gpiod_get(&pdev->dev, "ovp-en", GPIOD_OUT_LOW);
+	if (IS_ERR(gpios.ovp))
+		return dev_err_probe(&pdev->dev, PTR_ERR(gpios.ovp), "ovp-en\n");
+	gpios.boost = devm_gpiod_get(&pdev->dev, "boost-en", GPIOD_OUT_LOW);
+	if (IS_ERR(gpios.boost))
+		return dev_err_probe(&pdev->dev, PTR_ERR(gpios.boost), "boost-en\n");
 
 	np = of_parse_phandle(pdev->dev.of_node, "qcom,pmic-glink", 0);
 	if (!np)
@@ -272,7 +366,8 @@ static int oplus_otg_probe(struct platform_device *pdev)
 		return -EPROBE_DEFER;
 
 	child = platform_device_register_data(&pg->dev, OPLUS_OTG_CLIENT,
-					      PLATFORM_DEVID_NONE, NULL, 0);
+					      PLATFORM_DEVID_NONE,
+					      &gpios, sizeof(gpios));
 	if (IS_ERR(child))
 		return PTR_ERR(child);
 

@@ -188,13 +188,22 @@
 
 	/*
 	 * OnePlus's OTG handshake with the ADSP's charger (stock: oplus,chg
-	 * "qcom,otg_scheme = <0>", the CID scheme). For now it only tells the
-	 * ADSP that Linux handles OTG and logs its OTG notifications; the
-	 * boost converter's GPIOs (TLMM 57 and 64, PM8350C 6) stay untouched.
+	 * "qcom,otg_scheme = <0>", the CID scheme). OTG power comes from an
+	 * external boost converter: stock's otg-booster-en (TLMM 64) and
+	 * otg-ovp-en (TLMM 57), with the wireless receiver isolated first
+	 * (oplus,wrx_en-gpio, PM8350C GPIO 6).
 	 */
 	otg-glink {
 		compatible = "oneplus,otg-glink";
 		qcom,pmic-glink = <&pmic_glink>;
+
+		wrx-en-gpios = <&pm8350c_gpios 6 GPIO_ACTIVE_HIGH>;
+		ovp-en-gpios = <&tlmm 57 GPIO_ACTIVE_HIGH>;
+		boost-en-gpios = <&tlmm 64 GPIO_ACTIVE_HIGH>;
+
+		pinctrl-0 = <&otg_ovp_en_default>, <&otg_boost_en_default>,
+			    <&otg_wrx_en_default>;
+		pinctrl-names = "default";
 	};
 
 	/* The touchscreen's 1.8 V rail, switched by GPIO 186 (stock: enable1v8_gpio) */
@@ -637,9 +646,38 @@
 	status = "okay";
 };
 
+&pm8350c_gpios {
+	/* Stock oplus,wrx_en-gpio: wireless receiver isolation, off at rest */
+	otg_wrx_en_default: otg-wrx-en-default-state {
+		pins = "gpio6";
+		function = "normal";
+		power-source = <1>;
+		bias-disable;
+		input-disable;
+		output-low;
+	};
+};
+
 &tlmm {
 	/* Owned by the secure world on stock (qcom,gpios-reserved) */
 	gpio-reserved-ranges = <28 4>, <36 4>;
+
+	/* Stock otg_ovp_en and otg_booster_en: OTG power switches, off at rest */
+	otg_ovp_en_default: otg-ovp-en-default-state {
+		pins = "gpio57";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-down;
+		output-low;
+	};
+
+	otg_boost_en_default: otg-boost-en-default-state {
+		pins = "gpio64";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-down;
+		output-low;
+	};
 
 	bt_en: bt-en-state {
 		pins = "gpio81";
