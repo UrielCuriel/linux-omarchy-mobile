@@ -510,6 +510,13 @@ struct ucsi {
 
 /* USB4 connection can imply that USB communcation is supported */
 #define UCSI_USB4_IMPLIES_USB	BIT(2)
+
+/*
+ * Another driver owns the connector's mode switch (Qualcomm pmic_glink: the
+ * firmware reports every mode, USB, DP or none, through pmic_glink_altmode).
+ * UCSI then leaves the mode alone, so the two don't undo each other.
+ */
+#define UCSI_ALTMODE_OWNS_MUX	BIT(3)
 };
 
 #define UCSI_MAX_DATA_LENGTH(u) (((u)->version < UCSI_VERSION_2_0) ? 0x10 : 0xff)

@@ -1313,7 +1313,8 @@ static void ucsi_unregister_partner(struct ucsi_connector *con)
 	if (!con->partner)
 		return;
 
-	typec_set_mode(con->port, TYPEC_STATE_SAFE);
+	if (!(con->ucsi->quirks & UCSI_ALTMODE_OWNS_MUX))
+		typec_set_mode(con->port, TYPEC_STATE_SAFE);
 	if (con->ucsi->ops->remove_partner_altmodes)
 		con->ucsi->ops->remove_partner_altmodes(con);
 
@@ -1356,7 +1357,8 @@ static void ucsi_partner_change(struct ucsi_connector *con)
 			typec_set_mode(con->port, TYPEC_MODE_AUDIO);
 			break;
 		default:
-			if (UCSI_CONSTAT(con, PARTNER_FLAG_USB))
+			if (UCSI_CONSTAT(con, PARTNER_FLAG_USB) &&
+			    !(con->ucsi->quirks & UCSI_ALTMODE_OWNS_MUX))
 				typec_set_mode(con->port, TYPEC_STATE_USB);
 		}
 
